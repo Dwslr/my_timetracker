@@ -242,6 +242,17 @@ class TimerApp:
         self.populate_usernames()
         self.populate_tasknames()
 
+        # Set the width and height of the window
+        window_width = 300
+        window_height = 200
+        # Calculate the position to center the window
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2 - 40
+        # Set the window geometry to appear in the center
+        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+
     def start_task(self):
         task_name = self.task_entry.get()
         if not task_name:
