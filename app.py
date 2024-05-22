@@ -5,12 +5,11 @@ import sys
 import tkinter as tk
 from tkinter import messagebox
 import threading
+import time
 
 # custom import from my private config file to get DB host, port etc
 from f_db_config import db_host, db_port, db_name, db_user, db_password
 
-
-# !!! CREATE LOGGER !!!
 
 today_date = datetime.today().date()
 log_dir = "my_timetracker/logs"
@@ -29,7 +28,6 @@ handler.setFormatter(formatter)
 # Add the handler to the logger
 logger.addHandler(handler)
 
-# !!! START LOGGING !!!
 
 logger.info("")
 logger.info(f" --- STARTING THE CUSTOM LOGGER FOR MY TIMETRACKER APPLICATION --- ")
@@ -50,7 +48,7 @@ class Database:
             logger.info("Connected to database.")
         except Exception as e:
             logger.error(f"Error connecting to database: {e}")
-            sys.exit(1)
+            raise e  # Raise the exception for the GUI to handle
 
     def get_mtt_tables(self):
         try:
@@ -95,17 +93,21 @@ class Database:
 
     def add_user(self, username):
         try:
-            insert_query = """INSERT INTO mtt_users (username)
-                              VALUES (%s)"""
+            insert_query = (
+                """INSERT INTO mtt_users (username) VALUES (%s) RETURNING id"""
+            )
             self.cur.execute(insert_query, (username,))
             self.con.commit()
-            logger.info(f"User '{username}' added successfully.")
+            user_id = self.cur.fetchone()[0]
+            logger.info(f"User '{username}' added successfully with ID {user_id}.")
+            return user_id
         except psycopg2.errors.UniqueViolation:
             logger.error(f"User '{username}' already exists.")
             self.con.rollback()
         except psycopg2.Error as e:
             logger.error(f"Error adding user '{username}': {e}")
             self.con.rollback()
+        return None
 
     def start_task(self, user_id, task_name):
         try:
@@ -162,8 +164,7 @@ class Database:
                 logger.info(f"User '{username}' already exists with ID '{user_id}'.")
             else:
                 # If the user does not exist, add them to the database
-                self.add_user(username)
-                user_id = self.cur.lastrowid
+                user_id = self.add_user(username)
         except psycopg2.Error as e:
             logger.error(f"Error getting or creating user '{username}': {e}")
             self.con.rollback()
@@ -174,10 +175,17 @@ class Database:
 
 class TimerApp:
     def __init__(self, db):
-        self.db = db
+        try:
+            self.db = db
+        except Exception as e:
+            messagebox.showerror(
+                "Database Error", f"Could not connect to the database: {e}"
+            )
+            sys.exit(1)
+
         self.user_id = None
-        self.root = tk.Tk()
-        self.root.title("Task Timer")
+        self.root = tk.Tk()  # Initialize the Tk root window
+        self.root.title("MyTimeTracker DMTT")
 
         self.user_label = tk.Label(self.root, text="Username:")
         self.user_label.pack()
@@ -217,11 +225,15 @@ class TimerApp:
             messagebox.showerror("Input Error", "Username cannot be empty.")
             return
 
-        self.user_id = self.db.get_or_create_user(username)
-        self.user_entry.config(state=tk.DISABLED)
-        self.user_button.config(state=tk.DISABLED)
-        self.start_button.config(state=tk.NORMAL)
-        logger.info(f"User '{username}' set up with ID '{self.user_id}'.")
+        user_id = self.db.get_or_create_user(username)
+        if user_id is not None:
+            self.user_id = user_id
+            self.user_entry.config(state=tk.DISABLED)
+            self.user_button.config(state=tk.DISABLED)
+            self.start_button.config(state=tk.NORMAL)
+            logger.info(f"User '{username}' set up with ID '{self.user_id}'.")
+        else:
+            messagebox.showerror("Database Error", "Could not set up user.")
 
     def start_task(self):
         task_name = self.task_entry.get()
@@ -232,10 +244,21 @@ class TimerApp:
         self.db.start_task(self.user_id, task_name)
         self.start_time = datetime.now()
         self.timer_running = True
-        self.update_timer()
+        self.timer_thread = threading.Thread(target=self.update_timer)
+        self.timer_thread.daemon = True
+        self.timer_thread.start()
         self.start_button.config(state=tk.DISABLED)
         self.stop_button.config(state=tk.NORMAL)
         logger.info(f"Task '{task_name}' started at {self.start_time}")
+
+    def update_timer(self):
+        while self.timer_running:
+            elapsed_time = datetime.now() - self.start_time
+            hours, remainder = divmod(elapsed_time.seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            time_string = f"{hours:02}:{minutes:02}:{seconds:02}"
+            self.timer_label.config(text=time_string)
+            time.sleep(1)  # Sleep for a second to update the timer every second
 
     def stop_task(self):
         self.timer_running = False
@@ -249,15 +272,6 @@ class TimerApp:
 
         logger.info(f"Task '{task_name}' stopped after {self.elapsed_time} seconds")
         messagebox.showinfo("Task Completed", f"Task completed in {str(elapsed_time)}.")
-
-    def update_timer(self):
-        if self.timer_running:
-            elapsed_time = datetime.now() - self.start_time
-            hours, remainder = divmod(elapsed_time.seconds, 3600)
-            minutes, seconds = divmod(remainder, 60)
-            time_string = f"{hours:02}:{minutes:02}:{seconds:02}"
-            self.timer_label.config(text=time_string)
-            self.root.after(1000, self.update_timer)
 
 
 db = Database(db_host, db_port, db_name, db_user, db_password)
