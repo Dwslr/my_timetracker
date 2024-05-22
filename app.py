@@ -94,14 +94,13 @@ class Database:
 
     def add_user(self, username):
         try:
-            insert_query = (
-                """INSERT INTO mtt_users (username) VALUES (%s) RETURNING id"""
-            )
-            self.cur.execute(insert_query, (username,))
+            max_id = self.get_max_user_id()
+            new_id = max_id + 1
+            insert_query = """INSERT INTO mtt_users (id, username) VALUES (%s, %s)"""
+            self.cur.execute(insert_query, (new_id, username))
             self.con.commit()
-            user_id = self.cur.fetchone()[0]
-            logger.info(f"User '{username}' added successfully with ID {user_id}.")
-            return user_id
+            logger.info(f"User '{username}' added successfully with ID {new_id}.")
+            return new_id
         except psycopg2.errors.UniqueViolation:
             logger.error(f"User '{username}' already exists.")
             self.con.rollback()
@@ -172,6 +171,16 @@ class Database:
             user_id = None
 
         return user_id
+
+    def get_max_user_id(self):
+        try:
+            self.cur.execute("SELECT MAX(id) FROM mtt_users")
+            max_id = self.cur.fetchone()[0]
+            return max_id if max_id is not None else 0
+        except psycopg2.Error as e:
+            logger.error(f"Error fetching max user ID: {e}")
+            self.con.rollback()
+            return 0
 
 
 class TimerApp:
@@ -364,4 +373,3 @@ db.add_user("Dwisler")
 # Start the TimerApp
 app = TimerApp(db)
 app.run()
-
