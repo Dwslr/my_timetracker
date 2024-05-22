@@ -277,7 +277,7 @@ class TimerApp:
             minutes, seconds = divmod(remainder, 60)
             time_string = f"{hours:02}:{minutes:02}:{seconds:02}"
             self.timer_label.config(text=time_string)
-            self.root.after(1000, self.update_timer)  # Add this line
+            self.root.after(1000, self.update_timer)
 
     def load_previous_usernames(self):
         filename = "previous_usernames.txt"
@@ -380,9 +380,9 @@ db.get_mtt_tables()
 # db.drop_table('mtt_tasks')
 # db.drop_table('mtt_users')
 
-db.add_user("Dwisler")
-# db.start_task(1, "Learning English")
+# db.add_user("Dwisler")
 
+# db.start_task(1, "Learning English")
 
 # Start the TimerApp
 app = TimerApp(db)
