@@ -7,6 +7,7 @@ from tkinter import messagebox
 import threading
 import time
 import os
+import tkinter.ttk as ttk
 
 # custom import from my private config file to get DB host, port etc
 from f_db_config import db_host, db_port, db_name, db_user, db_password
@@ -182,31 +183,43 @@ class Database:
             self.con.rollback()
             return 0
 
+    def get_task_names(self):
+        try:
+            self.cur.execute("SELECT DISTINCT task FROM mtt_tasks")
+            tasks = self.cur.fetchall()
+            return [task[0] for task in tasks]
+        except psycopg2.Error as e:
+            logger.error(f"Error fetching task names: {e}")
+            self.con.rollback()
+            return []
+
+    def get_usernames(self):
+        try:
+            self.cur.execute("SELECT username FROM mtt_users")
+            usernames = self.cur.fetchall()
+            return [username[0] for username in usernames]
+        except psycopg2.Error as e:
+            logger.error(f"Error fetching usernames: {e}")
+            self.con.rollback()
+            return []
+
 
 class TimerApp:
     def __init__(self, db):
-        try:
-            self.db = db
-        except Exception as e:
-            messagebox.showerror(
-                "Database Error", f"Could not connect to the database: {e}"
-            )
-            sys.exit(1)
-
-        self.user_id = None
-        self.root = tk.Tk()  # Initialize the Tk root window
+        self.db = db
+        self.root = tk.Tk()
         self.root.title("MyTimeTracker DMTT")
 
         self.user_label = tk.Label(self.root, text="Username:")
         self.user_label.pack()
-        self.user_entry = tk.Entry(self.root)
+        self.user_entry = ttk.Combobox(self.root)
         self.user_entry.pack()
         self.user_button = tk.Button(self.root, text="Submit", command=self.setup_user)
         self.user_button.pack()
 
         self.task_label = tk.Label(self.root, text="Task Name:")
         self.task_label.pack()
-        self.task_entry = tk.Entry(self.root)
+        self.task_entry = ttk.Combobox(self.root)
         self.task_entry.pack()
 
         self.start_button = tk.Button(
@@ -226,14 +239,8 @@ class TimerApp:
         self.start_time = None
         self.elapsed_time = 0
 
-        self.previous_usernames = self.load_previous_usernames()
-        self.listbox = tk.Listbox(self.root)
-        self.listbox.bind("<<ListboxSelect>>", self.on_listbox_select)
-        self.user_entry.bind("<FocusIn>", self.show_dropdown)
-        self.user_entry.bind("<KeyRelease>", self.update_dropdown)
-
-    def run(self):
-        self.root.mainloop()
+        self.populate_usernames()
+        self.populate_tasknames()
 
     def start_task(self):
         task_name = self.task_entry.get()
@@ -241,24 +248,14 @@ class TimerApp:
             messagebox.showerror("Input Error", "Task name cannot be empty.")
             return
 
-        self.db.start_task(self.user_id, task_name)
         self.start_time = datetime.now()
-        self.timer_running = True
-        self.timer_thread = threading.Thread(target=self.update_timer)
-        self.timer_thread.daemon = True
-        self.timer_thread.start()
-        self.start_button.config(state=tk.DISABLED)
-        self.stop_button.config(state=tk.NORMAL)
         logger.info(f"Task '{task_name}' started at {self.start_time}")
 
-    def update_timer(self):
-        while self.timer_running:
-            elapsed_time = datetime.now() - self.start_time
-            hours, remainder = divmod(elapsed_time.seconds, 3600)
-            minutes, seconds = divmod(remainder, 60)
-            time_string = f"{hours:02}:{minutes:02}:{seconds:02}"
-            self.timer_label.config(text=time_string)
-            time.sleep(1)  # Sleep for a second to update the timer every second
+        self.db.start_task(self.user_id, task_name)
+        self.timer_running = True
+        self.update_timer()  # Remove this line
+        self.start_button.config(state=tk.DISABLED)
+        self.stop_button.config(state=tk.NORMAL)
 
     def stop_task(self):
         self.timer_running = False
@@ -272,6 +269,15 @@ class TimerApp:
 
         logger.info(f"Task '{task_name}' stopped after {self.elapsed_time} seconds")
         messagebox.showinfo("Task Completed", f"Task completed in {str(elapsed_time)}.")
+
+    def update_timer(self):
+        if self.timer_running:
+            elapsed_time = datetime.now() - self.start_time
+            hours, remainder = divmod(elapsed_time.seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            time_string = f"{hours:02}:{minutes:02}:{seconds:02}"
+            self.timer_label.config(text=time_string)
+            self.root.after(1000, self.update_timer)  # Add this line
 
     def load_previous_usernames(self):
         filename = "previous_usernames.txt"
@@ -335,11 +341,19 @@ class TimerApp:
             self.user_button.config(state=tk.DISABLED)
             self.start_button.config(state=tk.NORMAL)
             logger.info(f"User '{username}' set up with ID '{self.user_id}'.")
-            if username not in self.previous_usernames:
-                self.save_username(username)
-                self.previous_usernames.append(username)
         else:
             messagebox.showerror("Database Error", "Could not set up user.")
+
+    def populate_usernames(self):
+        usernames = self.db.get_usernames()
+        self.user_entry["values"] = usernames
+
+    def populate_tasknames(self):
+        tasknames = self.db.get_task_names()
+        self.task_entry["values"] = tasknames
+
+    def run(self):
+        self.root.mainloop()
 
 
 db = Database(db_host, db_port, db_name, db_user, db_password)
