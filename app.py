@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import messagebox
 import threading
 import time
+import os
 
 # custom import from my private config file to get DB host, port etc
 from f_db_config import db_host, db_port, db_name, db_user, db_password
@@ -216,24 +217,14 @@ class TimerApp:
         self.start_time = None
         self.elapsed_time = 0
 
+        self.previous_usernames = self.load_previous_usernames()
+        self.listbox = tk.Listbox(self.root)
+        self.listbox.bind("<<ListboxSelect>>", self.on_listbox_select)
+        self.user_entry.bind("<FocusIn>", self.show_dropdown)
+        self.user_entry.bind("<KeyRelease>", self.update_dropdown)
+
     def run(self):
         self.root.mainloop()
-
-    def setup_user(self):
-        username = self.user_entry.get()
-        if not username:
-            messagebox.showerror("Input Error", "Username cannot be empty.")
-            return
-
-        user_id = self.db.get_or_create_user(username)
-        if user_id is not None:
-            self.user_id = user_id
-            self.user_entry.config(state=tk.DISABLED)
-            self.user_button.config(state=tk.DISABLED)
-            self.start_button.config(state=tk.NORMAL)
-            logger.info(f"User '{username}' set up with ID '{self.user_id}'.")
-        else:
-            messagebox.showerror("Database Error", "Could not set up user.")
 
     def start_task(self):
         task_name = self.task_entry.get()
@@ -272,6 +263,74 @@ class TimerApp:
 
         logger.info(f"Task '{task_name}' stopped after {self.elapsed_time} seconds")
         messagebox.showinfo("Task Completed", f"Task completed in {str(elapsed_time)}.")
+
+    def load_previous_usernames(self):
+        filename = "previous_usernames.txt"
+        if os.path.exists(filename):
+            with open(filename, "r") as file:
+                return [line.strip() for line in file.readlines()]
+        return []
+
+    def save_username(self, username):
+        filename = "previous_usernames.txt"
+        with open(filename, "a") as file:
+            file.write(username + "\n")
+
+    def show_dropdown(self, event):
+        if self.previous_usernames:
+            self.listbox.delete(0, tk.END)
+            for username in self.previous_usernames:
+                self.listbox.insert(tk.END, username)
+            self.listbox.place(
+                x=self.user_entry.winfo_x(),
+                y=self.user_entry.winfo_y() + self.user_entry.winfo_height(),
+                width=self.user_entry.winfo_width(),
+            )
+
+    def update_dropdown(self, event):
+        search_term = self.user_entry.get()
+        matching_usernames = [
+            username
+            for username in self.previous_usernames
+            if search_term.lower() in username.lower()
+        ]
+        self.listbox.delete(0, tk.END)
+        for username in matching_usernames:
+            self.listbox.insert(tk.END, username)
+        if matching_usernames:
+            self.listbox.place(
+                x=self.user_entry.winfo_x(),
+                y=self.user_entry.winfo_y() + self.user_entry.winfo_height(),
+                width=self.user_entry.winfo_width(),
+            )
+        else:
+            self.listbox.place_forget()
+
+    def on_listbox_select(self, event):
+        if self.listbox.curselection():
+            selected_username = self.listbox.get(self.listbox.curselection())
+            self.user_entry.delete(0, tk.END)
+            self.user_entry.insert(0, selected_username)
+            self.listbox.place_forget()
+
+    def setup_user(self):
+        username = self.user_entry.get()
+        if not username:
+            messagebox.showerror("Input Error", "Username cannot be empty.")
+            return
+
+        user_id = self.db.get_or_create_user(username)
+        if user_id is not None:
+            self.user_id = user_id
+            self.user_entry.config(state=tk.DISABLED)
+            self.user_button.config(state=tk.DISABLED)
+            self.start_button.config(state=tk.NORMAL)
+            logger.info(f"User '{username}' set up with ID '{self.user_id}'.")
+            if username not in self.previous_usernames:
+                self.save_username(username)
+                self.previous_usernames.append(username)
+        else:
+            messagebox.showerror("Database Error", "Could not set up user.")
 
 
 db = Database(db_host, db_port, db_name, db_user, db_password)
