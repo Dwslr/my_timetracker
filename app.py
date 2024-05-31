@@ -4,8 +4,6 @@ from datetime import datetime
 import sys
 import tkinter as tk
 from tkinter import messagebox
-import threading
-import time
 import os
 import tkinter.ttk as ttk
 
@@ -390,10 +388,6 @@ db.get_mtt_tables()
 
 # db.drop_table('mtt_tasks')
 # db.drop_table('mtt_users')
-
-# db.add_user("Dwisler")
-
-# db.start_task(1, "Learning English")
 
 # Start the TimerApp
 app = TimerApp(db)
